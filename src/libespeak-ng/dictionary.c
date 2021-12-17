@@ -41,6 +41,12 @@
 #include "synthesize.h"                    // for STRESS_IS_PRIMARY, phoneme...
 #include "translate.h"                     // for Translator, utf8_in, LANGU...
 
+#if __has_include("dict_dump.h")
+#	include "dict_dump.h"
+#else
+#warning "No precompiled dictionary found for inclusion!"
+#endif
+
 typedef struct {
 	int points;
 	const char *phonemes;
@@ -197,6 +203,220 @@ static void InitGroups(Translator *tr)
 	}
 }
 
+#define DUMP_MEMBER__(memb, dumped, str_memb, repl) fprintf(f, INDENT ".%s = " repl ",\n", str_memb, dumped  memb)
+#define DUMP_MEMBER_(memb, dumped, str_memb, repl) DUMP_MEMBER__(memb, dumped, str_memb, repl)
+#define DUMP_MEMBER(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "0x%x")
+#define DUMP_MEMBER_STR(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "\"%s\"")
+
+/* Dump member as array of numbers */
+
+#define DUMP_MEMBER_ARR__(memb, dumped, str_memb) \
+	if (str_memb != 0) \
+		fprintf(f, INDENT ".%s = { ", str_memb); \
+	else \
+		fprintf(f, INDENT "{ ", str_memb); \
+	\
+	for (int q = 0; q < sizeof(dumped memb) / sizeof(dumped memb[0]); ++q) { \
+		if (q != 0) fputs(", ", f); \
+		fprintf(f, "0x%x", dumped memb[q]); \
+	} \
+	fprintf(f, " }, \n")
+#define DUMP_MEMBER_ARR_(memb, dumped, str_memb) DUMP_MEMBER_ARR__(memb, dumped, str_memb)
+#define DUMP_MEMBER_ARR(memb) DUMP_MEMBER_ARR_(memb, DUMPED, # memb)
+#define DUMP_MEMBER_ARR_NAKED(memb) DUMP_MEMBER_ARR_(memb, DUMPED, 0)
+
+
+/* Dump member as array of pointers */
+
+#define DUMP_MEMBER_ARR_PTR__(memb, dumped, str_memb, tgt, str_tgt, size) \
+	fprintf(f, INDENT ".%s = {\n", str_memb); \
+	for (int q = 0; q < sizeof(dumped memb) / sizeof(dumped memb[0]); ++q) { \
+		{\
+			if ((((unsigned char *) dumped memb[q]) >= ((unsigned char *) &tgt[0])) \
+					&& (((unsigned char *) dumped memb[q]) < ((unsigned char *) &tgt[size]))) {\
+				fprintf(f, INDENT "\t&%s[%d],\n", str_tgt, ((unsigned char *) dumped memb[q]) - ((unsigned char *) &tgt[0])); \
+			} else {\
+				fprintf(f, INDENT "\t0x%x,\n", dumped memb[q]);\
+			}\
+		} \
+	} \
+	fprintf(f, INDENT "}, \n")
+#define DUMP_MEMBER_ARR_PTR_(memb, dumped, str_memb, tgt, str_tgt, size) DUMP_MEMBER_ARR_PTR__(memb, dumped, str_memb, tgt, str_tgt, size)
+#define DUMP_MEMBER_ARR_PTR(memb, tgt, str_tgt, size) DUMP_MEMBER_ARR_PTR_(memb, DUMPED, # memb, tgt, str_tgt, size)
+
+
+#define DUMP_MEMBER_PTR__(memb, dumped, str_memb, tgt, tgt_str, size) {\
+	if ((((unsigned char *) dumped memb) >= ((unsigned char *) &tgt[0])) \
+			&& (((unsigned char *) dumped memb) < ((unsigned char *) &tgt[size]))) {\
+		fprintf(f, INDENT ".%s = &%s[%d],\n", str_memb, tgt_str, ((unsigned char *) dumped memb) - ((unsigned char *) &tgt[0]), str_memb); \
+	} else {\
+		fprintf(f, INDENT ".%s = 0x%x, /* %s */\n", str_memb, dumped memb);\
+	}\
+}
+
+#define DUMP_MEMBER_PTR_(memb, dumped, str_memb, tgt, tgt_str, size) DUMP_MEMBER_PTR__(memb, dumped, str_memb, tgt, tgt_str, size)
+#define DUMP_MEMBER_PTR(memb, tgt, tgt_str, size) DUMP_MEMBER_PTR_(memb, DUMPED, # memb, tgt, tgt_str, size);
+
+static void DumpDictionary(Translator *tr, const char *out, int size)
+{
+	if (strcmp(tr->dictionary_name, "en") != 0)
+		return;
+
+	FILE * f = fopen(out, "w");
+	if (f == NULL)
+		return;
+
+	fputs("// Raw dump of input dictionary data.\n// Referenced later\n\n", f);
+	fputs("static char dict_bytes[] = {\n", f);
+
+	int wrap = 0;
+	for (int q = 0; q < size; ++q) {
+		if (wrap == 0) {
+			fputs("\t", f);
+		}
+		fprintf(f, "0x%02X, ", tr->data_dictlist[q]);
+
+		if (wrap == 7)
+			fputs("  ", f);
+
+		if (wrap == 15) {
+			fprintf(f, "\t\t/* %08X */\n", q - 15);
+			wrap = 0;
+			continue;
+		}
+		wrap++;
+	}
+		
+	fputs("0 };\n\n", f);
+
+	fputs("// Static, pre-initialized image of ready-to-use translator\nTranslator static_tr = {\n", f);
+	fputs("\t{ /* langopts */\n", f);
+#define DUMPED tr->langopts.
+#define INDENT "\t\t"
+	DUMP_MEMBER(word_gap);
+	DUMP_MEMBER(vowel_pause);
+	DUMP_MEMBER(stress_rule);
+	DUMP_MEMBER(stress_flags);
+	DUMP_MEMBER(unstressed_wd1);
+	DUMP_MEMBER(unstressed_wd2);
+	DUMP_MEMBER_ARR(param);
+	DUMP_MEMBER_PTR(length_mods, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER_PTR(length_mods0, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER(numbers);
+	DUMP_MEMBER(numbers2);
+	DUMP_MEMBER(break_numbers);
+	DUMP_MEMBER(max_roman);
+	DUMP_MEMBER(min_roman);
+	DUMP_MEMBER(thousands_sep);
+	DUMP_MEMBER(decimal_sep);
+	DUMP_MEMBER(max_digits);
+	DUMP_MEMBER_STR(ordinal_indicator);
+	DUMP_MEMBER_STR(roman_suffix);
+	DUMP_MEMBER(accents);
+	DUMP_MEMBER(tone_language);
+	DUMP_MEMBER(intonation_group);
+	DUMP_MEMBER_ARR(tunes);
+	DUMP_MEMBER(long_stop);
+	DUMP_MEMBER(max_initial_consonants);
+	DUMP_MEMBER(spelling_stress);
+	DUMP_MEMBER(tone_numbers);
+	DUMP_MEMBER(ideographs);
+	DUMP_MEMBER(textmode);
+	DUMP_MEMBER(dotless_i);
+	DUMP_MEMBER(listx);
+	DUMP_MEMBER_STR(replace_chars);
+	DUMP_MEMBER(our_alphabet);
+	DUMP_MEMBER(alt_alphabet);
+	DUMP_MEMBER(alt_alphabet_lang);
+	DUMP_MEMBER(max_lengthmod);
+	DUMP_MEMBER(lengthen_tonic);
+	DUMP_MEMBER(suffix_add_e);
+	DUMP_MEMBER(lowercase_sentence);
+	
+
+	fputs("\t},\n", f);
+#undef DUMPED
+#undef INDENT
+#define DUMPED tr->
+#define INDENT "\t"
+
+	DUMP_MEMBER(translator_name);
+	DUMP_MEMBER(transpose_max);
+	DUMP_MEMBER(transpose_min);
+	DUMP_MEMBER_STR(transpose_map);
+	DUMP_MEMBER_ARR(dictionary_name);
+	DUMP_MEMBER_ARR(phonemes_repeat);
+	DUMP_MEMBER(phonemes_repeat_count);
+	DUMP_MEMBER(phoneme_tab_ix);
+	DUMP_MEMBER_ARR(stress_amps);
+	DUMP_MEMBER_ARR(stress_lengths);
+	DUMP_MEMBER(dict_condition);
+	DUMP_MEMBER(dict_min_size);
+
+	/* TODO encoding */
+
+	DUMP_MEMBER_STR(char_plus_apostrophe);
+	DUMP_MEMBER_STR(punct_within_word);
+	DUMP_MEMBER_STR(chars_ignore);
+	DUMP_MEMBER_ARR(letter_bits);
+	DUMP_MEMBER(letter_bits_offset);
+
+	/* TODO letter_groups */
+	DUMP_MEMBER_ARR(letter_groups);
+
+	fputs("\t{ /* punct_to_tone */\n", f);
+
+#undef INDENT
+#define INDENT "\t\t"
+
+	for (int w = 0; w < sizeof(DUMPED punct_to_tone)/sizeof(DUMPED punct_to_tone[0]); ++w) {
+		DUMP_MEMBER_ARR_NAKED(punct_to_tone[w]);
+	}
+
+	fputs("\t},\n", f);
+
+#undef INDENT
+#define INDENT "\t"
+
+	DUMP_MEMBER_PTR(data_dictrules, tr->data_dictlist, "dict_bytes", size);
+	fputs("\tdict_bytes, /* data_dictlist */\n", f);
+
+	DUMP_MEMBER_ARR_PTR(dict_hashtab, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER_ARR_PTR(letterGroups, tr->data_dictlist, "dict_bytes", size);
+
+	/* the order really is 1, 3, 2 */
+	DUMP_MEMBER_ARR_PTR(groups1, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER_ARR_PTR(groups3, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER_ARR_PTR(groups2, tr->data_dictlist, "dict_bytes", size);
+	DUMP_MEMBER_ARR(groups2_name);
+	DUMP_MEMBER(n_groups2);
+	DUMP_MEMBER_ARR(groups2_count);
+	DUMP_MEMBER_ARR(groups2_start);
+
+	/* TODO frequent_pairs */
+
+	/* following are probably accessed at runtime only, but store them anyway */
+
+	DUMP_MEMBER(expect_verb);
+	DUMP_MEMBER(expect_past);
+	DUMP_MEMBER(expect_verb_s);
+	DUMP_MEMBER(expect_noun);
+	DUMP_MEMBER(prev_last_stress);
+	DUMP_MEMBER_STR(clause_end);
+	DUMP_MEMBER(word_vowel_count);
+	DUMP_MEMBER(word_stressed_count);
+	DUMP_MEMBER(clause_upper_count);
+	DUMP_MEMBER(clause_lower_count);
+	DUMP_MEMBER(prepause_timeout);
+	DUMP_MEMBER(end_stressed_vowel);
+	DUMP_MEMBER_ARR(prev_dict_flags);
+	DUMP_MEMBER(clause_terminator);
+
+	fputs("};", f);
+	fflush(f);
+	fclose(f);
+}
+
 int LoadDictionary(Translator *tr, const char *name, int no_error)
 {
 	int hash;
@@ -269,6 +489,8 @@ int LoadDictionary(Translator *tr, const char *name, int no_error)
 
 	if ((tr->dict_min_size > 0) && (size < (unsigned int)tr->dict_min_size))
 		fprintf(stderr, "Full dictionary is not installed for '%s'\n", name);
+
+	DumpDictionary(tr, "dict_dump.c", size);
 
 	return 0;
 }
