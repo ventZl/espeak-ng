@@ -161,7 +161,7 @@ static void SetLetterBitsUTF8(Translator *tr, int group, const char *letters, in
 }
 
 // ignore these characters
-static const unsigned short chars_ignore_default[] = {
+const unsigned short chars_ignore_default[] = {
 	// U+00AD SOFT HYPHEN
 	//     Used to mark hyphenation points in words for where to split a
 	//     word at the end of a line to provide readable justified text.
@@ -180,7 +180,7 @@ static const unsigned short chars_ignore_default[] = {
 };
 
 // alternatively, ignore characters but allow zero-width-non-joiner (lang-fa)
-static const unsigned short chars_ignore_zwnj_hyphen[] = {
+const unsigned short chars_ignore_zwnj_hyphen[] = {
 	// U+00AD SOFT HYPHEN
 	//     Used to mark hyphenation points in words for where to split a
 	//     word at the end of a line to provide readable justified text.
@@ -331,7 +331,7 @@ static Translator *NewTranslator(void)
 
 // common letter pairs, encode these as a single byte
 //  2 bytes, using the transposed character codes
-static const short pairs_ru[] = {
+const short pairs_ru[] = {
 	0x010c, //  ла   21052  0x23
 	0x010e, //  на   18400
 	0x0113, //  та   14254

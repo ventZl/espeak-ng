@@ -17,6 +17,9 @@
  * along with this program; if not, see: <http://www.gnu.org/licenses/>.
  */
 
+//#define USE_FIXED_DICT
+#undef USE_FIXED_DICT
+
 #include "config.h"
 
 #include <ctype.h>
@@ -44,7 +47,8 @@
 #if __has_include("dict_dump.h")
 #	include "dict_dump.h"
 #else
-#warning "No precompiled dictionary found for inclusion!"
+#	define STATIC_DICT_UNAVAILABLE
+#	undef USE_FIXED_DICT
 #endif
 
 typedef struct {
@@ -203,10 +207,22 @@ static void InitGroups(Translator *tr)
 	}
 }
 
+// Those are pretty much only one, which can be used here
+extern const short pairs_ru[];
+extern const unsigned char utf8_ordinal[]; // masculine ordinal character, UTF-8
+extern const unsigned char utf8_null[]; // null string, UTF-8
+extern const unsigned short chars_ignore_default[];
+extern const unsigned short chars_ignore_zwnj_hyphen[];
+
+
+#define ARR_SIZE(arr) (sizeof(arr)/sizeof(arr[0]))
+
 #define DUMP_MEMBER__(memb, dumped, str_memb, repl) fprintf(f, INDENT ".%s = " repl ",\n", str_memb, dumped  memb)
 #define DUMP_MEMBER_(memb, dumped, str_memb, repl) DUMP_MEMBER__(memb, dumped, str_memb, repl)
 #define DUMP_MEMBER(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "0x%x")
 #define DUMP_MEMBER_STR(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "\"%s\"")
+#define DUMP_MEMBER_WSTR(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "L\"%ls\"")
+#define DUMP_MEMBER_UTFSTR(memb) DUMP_MEMBER_(memb, DUMPED, # memb, "u\"%ls\"")
 
 /* Dump member as array of numbers */
 
@@ -266,8 +282,15 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	if (f == NULL)
 		return;
 
+	fputs("extern const unsigned short chars_ignore_default[];\n"
+			"extern const unsigned short chars_ignore_zwnj_hyphen[];\n"
+			"extern const unsigned char utf8_ordinal[];\n"
+			"extern const unsigned char utf8_null[];\n\n", f);
+
+
 	fputs("// Raw dump of input dictionary data.\n// Referenced later\n\n", f);
-	fputs("static char dict_bytes[] = {\n", f);
+	fputs("static /*const*/ char dict_bytes[] = {\n", f);
+	
 
 	int wrap = 0;
 	for (int q = 0; q < size; ++q) {
@@ -289,6 +312,38 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 		
 	fputs("0 };\n\n", f);
 
+	fputs("// Raw dump of length_mods and length_mods0 arrays\n// Referenced later\n\n", f);
+	fputs("static unsigned char length_mods[100] = {\n", f);
+
+	for (int q = 0; q < 100; ++q) {
+		if (q != 0)
+			fputs(", ", f);
+
+		fprintf(f, "0x%02X", tr->langopts.length_mods[q]);
+	}
+	fputs("\n};\n", f);
+
+	fputs("// Raw dump of length_mods and length_mods0 arrays\n// Referenced later\n\n", f);
+	fputs("static unsigned char length_mods0[100] = {\n", f);
+
+	for (int q = 0; q < 100; ++q) {
+		if (q != 0)
+			fputs(", ", f);
+
+		fprintf(f, "0x%02X", tr->langopts.length_mods0[q]);
+	}
+	fputs("\n};\n", f);
+
+	fputs("// Raw dump of letter groups in use\n// Referenced later\n\n", f);
+
+	for (int q = 0; q < ARR_SIZE(tr->letter_groups); ++q)
+	{
+		if (tr->letter_groups[q] != NULL)
+			fprintf(f, "static const wchar_t letter_groups__%d = L\"%ls\";\n", q, tr->letter_groups[q]);
+	}
+
+	fputs("// Raw dump of frequent_pairs\n// Referenced later\n\n", f);
+
 	fputs("// Static, pre-initialized image of ready-to-use translator\nTranslator static_tr = {\n", f);
 	fputs("\t{ /* langopts */\n", f);
 #define DUMPED tr->langopts.
@@ -300,8 +355,8 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	DUMP_MEMBER(unstressed_wd1);
 	DUMP_MEMBER(unstressed_wd2);
 	DUMP_MEMBER_ARR(param);
-	DUMP_MEMBER_PTR(length_mods, tr->data_dictlist, "dict_bytes", size);
-	DUMP_MEMBER_PTR(length_mods0, tr->data_dictlist, "dict_bytes", size);
+	fputs(INDENT ".length_mods = length_mods,\n", f);
+	fputs(INDENT ".length_mods0 = length_mods0,\n", f);
 	DUMP_MEMBER(numbers);
 	DUMP_MEMBER(numbers2);
 	DUMP_MEMBER(break_numbers);
@@ -311,7 +366,15 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	DUMP_MEMBER(decimal_sep);
 	DUMP_MEMBER(max_digits);
 	DUMP_MEMBER_STR(ordinal_indicator);
-	DUMP_MEMBER_STR(roman_suffix);
+	fputs(INDENT ".roman_suffix = ", f);
+	if (tr->langopts.roman_suffix == utf8_ordinal) {
+		fputs("utf8_ordinal", f);
+	} else if (tr->langopts.roman_suffix == utf8_null) {
+		fputs("utf8_null", f);
+	} else {
+		fprintf(f, "0x%lX", tr->langopts.roman_suffix);
+	}
+	fputs(",\n", f);
 	DUMP_MEMBER(accents);
 	DUMP_MEMBER(tone_language);
 	DUMP_MEMBER(intonation_group);
@@ -352,18 +415,31 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	DUMP_MEMBER_ARR(stress_lengths);
 	DUMP_MEMBER(dict_condition);
 	DUMP_MEMBER(dict_min_size);
-
-	/* TODO encoding */
-
-	DUMP_MEMBER_STR(char_plus_apostrophe);
-	DUMP_MEMBER_STR(punct_within_word);
-	DUMP_MEMBER_STR(chars_ignore);
+	DUMP_MEMBER(encoding);
+	DUMP_MEMBER_WSTR(char_plus_apostrophe);
+	DUMP_MEMBER_WSTR(punct_within_word);
+	fputs(".chars_ignore = ", f);
+	if (tr->chars_ignore == chars_ignore_default)
+		fputs("chars_ignore_default", f);
+	else if (tr->chars_ignore == chars_ignore_zwnj_hyphen)
+		fputs("chars_ignore_zwnj_hyphen", f);
+	fputs(",\n", f);
 	DUMP_MEMBER_ARR(letter_bits);
 	DUMP_MEMBER(letter_bits_offset);
 
-	/* TODO letter_groups */
-	DUMP_MEMBER_ARR(letter_groups);
+	fputs(INDENT ".letter_groups = { ", f);
+	for (int q = 0; q < ARR_SIZE(tr->letter_groups); ++q)
+	{
+		if (q != 0)
+			fputs(", ", f);
 
+		if (tr->letter_groups[q] != 0) {
+			fprintf(f, "letter_groups__%d", q);
+		} else {
+			fprintf(f, "NULL");
+		}
+	}
+	fputs(" },\n", f);
 	fputs("\t{ /* punct_to_tone */\n", f);
 
 #undef INDENT
@@ -394,6 +470,12 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	DUMP_MEMBER_ARR(groups2_start);
 
 	/* TODO frequent_pairs */
+	if (tr->frequent_pairs == pairs_ru) {
+		fputs(INDENT ".frequent_pairs = pairs_ru,\n", f);
+	} else {
+		fputs(INDENT ".frequent_pairs = NULL,\n", f);
+	}
+
 
 	/* following are probably accessed at runtime only, but store them anyway */
 
@@ -417,6 +499,7 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 	fclose(f);
 }
 
+#ifndef USE_FIXED_DICT
 int LoadDictionary(Translator *tr, const char *name, int no_error)
 {
 	int hash;
@@ -490,10 +573,24 @@ int LoadDictionary(Translator *tr, const char *name, int no_error)
 	if ((tr->dict_min_size > 0) && (size < (unsigned int)tr->dict_min_size))
 		fprintf(stderr, "Full dictionary is not installed for '%s'\n", name);
 
-	DumpDictionary(tr, "dict_dump.c", size);
+	DumpDictionary(tr, "../src/libespeak-ng/dict_dump.h", size);
+
+#ifndef STATIC_DICT_UNAVAILABLE
+	DeleteTranslator(translator);
+
+	translator = &static_tr;
+#endif
+	return 0;
+}
+
+#else
+
+int LoadDictionary(Translator * tr, const char * dict, int no_error) {
+	translator = &static_tr;
 
 	return 0;
 }
+#endif
 
 /* Generate a hash code from the specified string
     This is used to access the dictionary_2 word-lookup dictionary
