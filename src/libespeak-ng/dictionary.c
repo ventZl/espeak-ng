@@ -17,8 +17,8 @@
  * along with this program; if not, see: <http://www.gnu.org/licenses/>.
  */
 
-//#define USE_FIXED_DICT
-#undef USE_FIXED_DICT
+#define USE_FIXED_DICT
+//#undef USE_FIXED_DICT
 
 #include "config.h"
 
@@ -502,6 +502,7 @@ static void DumpDictionary(Translator *tr, const char *out, int size)
 #ifndef USE_FIXED_DICT
 int LoadDictionary(Translator *tr, const char *name, int no_error)
 {
+	printf("%s()\n", __FUNCTION__);
 	int hash;
 	char *p;
 	int *pw;
@@ -585,7 +586,10 @@ int LoadDictionary(Translator *tr, const char *name, int no_error)
 
 #else
 
-int LoadDictionary(Translator * tr, const char * dict, int no_error) {
+int LoadDictionary(Translator * tr, const char * name, int no_error) {
+	*tr = static_tr;
+	if (dictionary_name != name)
+		strncpy(dictionary_name, name, 40); // currently loaded dictionary name
 	translator = &static_tr;
 
 	return 0;
