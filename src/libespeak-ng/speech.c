@@ -97,8 +97,29 @@ void cancel_audio(void)
 #endif
 }
 
+#define DUMP_EVT(evt)	case evt: printf(# evt); break
+
 static int dispatch_audio(short *outbuf, int length, espeak_EVENT *event)
 {
+	if (event != NULL) {
+		printf("dispatch_audio(");
+		switch (event->type) {
+			DUMP_EVT(espeakEVENT_LIST_TERMINATED);
+			DUMP_EVT(espeakEVENT_WORD);
+			DUMP_EVT(espeakEVENT_SENTENCE);
+			DUMP_EVT(espeakEVENT_MARK);
+			DUMP_EVT(espeakEVENT_PLAY);
+			DUMP_EVT(espeakEVENT_END);
+			DUMP_EVT(espeakEVENT_MSG_TERMINATED);
+			DUMP_EVT(espeakEVENT_PHONEME);
+			DUMP_EVT(espeakEVENT_SAMPLERATE);
+			default:
+				printf("<unknown>");
+		}
+		printf(")\n");
+	} else {
+		printf("Null event pointer provided!\n");
+	}
 	int a_wave_can_be_played = 1;
 #ifdef USE_ASYNC
 	if ((my_mode & ENOUTPUT_MODE_SYNCHRONOUS) == 0)
@@ -542,6 +563,7 @@ espeak_ng_STATUS sync_espeak_Synth(unsigned int unique_identifier, const void *t
                                    unsigned int position, espeak_POSITION_TYPE position_type,
                                    unsigned int end_position, unsigned int flags, void *user_data)
 {
+	printf("%s()\n", __FUNCTION__);
 	InitText(flags);
 	my_unique_identifier = unique_identifier;
 	my_user_data = user_data;
@@ -667,6 +689,7 @@ espeak_ng_Synthesize(const void *text, size_t size,
                      unsigned int *unique_identifier, void *user_data)
 {
 	(void)size; // unused in non-async modes
+	printf("%s()\n", __FUNCTION__);
 
 	static unsigned int temp_identifier;
 

@@ -208,8 +208,13 @@ int isspace2(unsigned int c)
 	return 1;
 }
 
+extern Translator * static_tr;
+
 void DeleteTranslator(Translator *tr)
 {
+	if (tr == static_tr)
+		return;
+
 	if (!tr) return;
 
 	if (tr->data_dictlist != NULL)

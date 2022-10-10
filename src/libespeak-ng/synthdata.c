@@ -41,6 +41,26 @@
 #include "translate.h"                // for Translator, LANGUAGE_OPTIONS
 #include "voice.h"                    // for ReadTonePoints, tone_points, voice
 
+#if __has_include("phondata.h")
+#	define HAS_STATIC_PHONDATA
+#	include "phondata.h"
+#endif
+
+#if __has_include("phonindex.h")
+#	define HAS_STATIC_PHONINDEX
+#	include "phonindex.h"
+#endif
+
+#if __has_include("phontab.h")
+#	define HAS_STATIC_PHONTAB
+#	include "phontab.h"
+#endif
+
+#if __has_include("intonations.h")
+#	define HAS_STATIC_INTONATIONS
+#	include "intonations.h"
+#endif
+
 const int version_phdata  = 0x014801;
 
 // copy the current phoneme table into here
@@ -61,11 +81,58 @@ int seq_len_adjust;
 
 static espeak_ng_STATUS ReadPhFile(void **ptr, const char *fname, int *size, espeak_ng_ERROR_CONTEXT *context)
 {
+	int sacrifice;
+	if (size == NULL)
+		size = &sacrifice;
+
+#ifdef HAS_STATIC_PHONTAB
+	if (strcmp(fname, "phontab") == 0) {
+		*ptr = static_phontab;
+		*size = sizeof(static_phontab);
+		printf("phontab ok\n");
+		return ENS_OK;
+	}
+#endif
+
+#ifdef HAS_STATIC_PHONINDEX
+	if (strcmp(fname, "phonindex") == 0) {
+		*ptr = static_phonindex;
+		*size = sizeof(static_phonindex);
+		printf("phonindex ok\n");
+		return ENS_OK;
+	}
+#endif
+
+#ifdef HAS_STATIC_PHONDATA
+	if (strcmp(fname, "phondata") == 0) {
+		*ptr = static_phondata;
+		*size = sizeof(static_phondata);
+		printf("phondata ok\n");
+		return ENS_OK;
+	}
+#endif
+
+#ifdef HAS_STATIC_INTONATIONS
+	if (strcmp(fname, "intonations") == 0) {
+		*ptr = static_intonations;
+		*size = sizeof(static_intonations);
+		printf("intonations ok\n");
+		return ENS_OK;
+	}
+#endif
+
+#if !defined(HAS_STATIC_PHONTAB) || !defined(HAS_STATIC_PHONINDEX) || !defined(HAS_STATIC_PHONDATA) || !defined(HAS_STATIC_INTONATIONS)
 	if (!ptr) return EINVAL;
 
 	FILE *f_in;
 	int length;
 	char buf[sizeof(path_home)+40];
+
+	char stbuf[255];
+
+	snprintf(stbuf, 254, "src/libespeak-ng/%s.h", fname);
+
+	FILE *f_out = fopen(stbuf, "w");
 
 	sprintf(buf, "%s%c%s", path_home, PATHSEP, fname);
 	length = GetFileLength(buf);
@@ -89,10 +156,44 @@ static espeak_ng_STATUS ReadPhFile(void **ptr, const char *fname, int *size, esp
 		return create_file_error_context(context, error, buf);
 	}
 
+	if (f_out) {
+		fprintf(f_out, "const char static_%s[] = {\n", fname);
+
+		int wrap = 0;
+		for (int q = 0; q < length; ++q) {
+			if (wrap == 0) {
+				fputs("\t", f_out);
+			}
+			fprintf(f_out, "0x%02X, ", ((char *)*ptr)[q]);
+
+			if (wrap == 7)
+				fputs("  ", f_out);
+
+			if (wrap == 15) {
+				fprintf(f_out, "\t\t/* %08X */\n", q - 15);
+				wrap = 0;
+				continue;
+			}
+			wrap++;
+		}
+		
+		fputs("0 };\n\n", f_out);
+
+		fclose(f_out);
+	}
+	else
+	{
+		perror("fopen:");
+	}
+
 	fclose(f_in);
 	if (size != NULL)
 		*size = length;
 	return ENS_OK;
+#else
+	printf("%s NOK\n", fname);
+	return EINVAL;
+#endif
 }
 
 espeak_ng_STATUS LoadPhData(int *srate, espeak_ng_ERROR_CONTEXT *context)
